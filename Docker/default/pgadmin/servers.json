@@ -1,0 +1,13 @@
+{
+    "Servers": {
+      "1": {
+        "Name": "Dev Stack PostgresSQL",
+        "Group": "Servers",
+        "Port": 5432,
+        "Username": "dev-stack-admin",
+        "Host": "postgres",
+        "SSLMode": "prefer",
+        "MaintenanceDB": "main"
+      }
+    }
+  }

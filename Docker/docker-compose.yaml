@@ -1,0 +1,131 @@
+version: '3.2'
+
+services:
+
+  # portainer:
+  #   container_name: portainer
+  #   image: portainer/portainer-ce
+  #   ports:
+  #     - "9000:9000"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - portainer-data:/data
+  #   networks:
+  #     - dev_network
+  #   restart: unless-stopped
+  
+  postgres:
+    container_name: postgres
+    image: postgres:16.3
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./default/postgres/multiple-databases.sh:/docker-entrypoint-initdb.d/multiple-databases.sh
+      - ./default/postgres:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_USER=dev-stack-admin
+      - POSTGRES_PASSWORD=123DevStack!
+      - POSTGRES_DB=main
+      - PGDATA=/var/lib/postgresql/data/db-files/
+      - POSTGRES_MULTIPLE_DATABASES=wiki-db,synapse-matrix-db
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    networks:
+      - dev_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U 'dev-stack-admin' -d 'main'"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  pgadmin:
+    container_name: pgadmin
+    image: dpage/pgadmin4:8.8
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@devstack.it
+      PGADMIN_DEFAULT_PASSWORD: 123DevStack!
+    volumes:
+       - pgadmin-data:/var/lib/pgadmin
+        - ./default/pgadmin/servers.json:/pgadmin4/servers.json # preconfigured servers/connections
+    ports:
+      - "5050:80"
+    networks:
+      - dev_network
+    restart: unless-stopped
+    
+  wiki:
+    container_name: wiki
+    image: requarks/wiki:2.5
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: dev-stack-admin
+      DB_PASS: 123DevStack!
+      DB_NAME: wiki-db
+    ports:
+      - "8060:3000"
+    networks:
+      - dev_network
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  nexus:
+    container_name: artifactshub
+    image: sonatype/nexus3
+    restart: unless-stopped
+    volumes:
+      - nexus-data:/nexus-data
+    ports:
+      - "8081:8081"
+      - "8085:8085"
+    networks:
+      - dev_network
+
+  jenkins:
+    container_name: jenkins
+    image: jenkins/jenkins:lts-jdk17
+    restart: unless-stopped
+    volumes:
+      - jenkins-docker-certs:/certs/client
+      - jenkins-data:/var/jenkins_home
+    ports:
+      - "8050:8080"
+    networks:
+      - dev_network
+
+  synapse-matrix:
+    image: "matrixdotorg/synapse:v1.90.0"
+    container_name: synapse-matrix
+    ports:
+        - 8448:8008
+    networks:
+      - dev_network
+    volumes:
+        - synapse-matrix-data:/data #it will look at the current directory where you save the file and look for the data folder inside
+        - ./default/synapse-matrix-data/:/data/
+    environment:
+        VIRTUAL_HOST: "matrix.dev-stack-admin.local"
+        VIRTUAL_PORT: 8008
+        LETSENCRYPT_HOST: "matrix.dev-stack-admin.local"
+        SYNAPSE_SERVER_NAME: "matrix.dev-stack-admin.local"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  dev_network:
+    name: dev-network
+
+volumes:
+  portainer-data:
+  postgres-data:
+  pgadmin-data:
+  nexus-data:
+  jenkins-docker-certs:
+  jenkins-data:
+  synapse-matrix-data:
