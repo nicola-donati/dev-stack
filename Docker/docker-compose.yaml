@@ -10,27 +10,26 @@ services:
       - portainer-data:/data
     restart: unless-stopped
     environment:
-      VIRTUAL_HOST: portainer.local
-      VIRTUAL_PORT: 9000
+      VIRTUAL_HOST: ${PORTAINER_VIRTUAL_HOST}
+      VIRTUAL_PORT:  ${PORTAINER_VIRTUAL_PORT}
   
   postgres:
     container_name: postgres
     image: postgres:16.3
     volumes:
       - postgres-data:/var/lib/postgresql/data
-      - ./default/postgres/multiple-databases.sh:/docker-entrypoint-initdb.d/multiple-databases.sh
       - ./default/postgres:/docker-entrypoint-initdb.d
     environment:
-      POSTGRES_USER: dev-stack-admin
-      POSTGRES_PASSWORD: 123DevStack!
-      POSTGRES_DB: main
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
       PGDATA: /var/lib/postgresql/data/db-files/
-      POSTGRES_MULTIPLE_DATABASES: wiki-db,synapse-matrix-db
+      POSTGRES_MULTIPLE_DATABASES: ${WIKI_DB_NAME},${MATTERMOST_DB_NAME}
       POSTGRES_INITDB_ARGS: --encoding=UTF-8 --lc-collate=C --lc-ctype=C
       NETWORK_ACCESS: internal
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U 'dev-stack-admin' -d 'main'"]
+      test: ["CMD-SHELL", "pg_isready -U '${POSTGRES_USER}' -d '${POSTGRES_DB}'"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -39,10 +38,10 @@ services:
     container_name: pgadmin
     image: dpage/pgadmin4:8.8
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@devstack.it
-      PGADMIN_DEFAULT_PASSWORD: 123DevStack!
-      VIRTUAL_HOST: pgadmin.local
-      VIRTUAL_PORT: 80
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+      VIRTUAL_HOST: ${PGADMIN_VIRTUAL_HOST}
+      VIRTUAL_PORT: ${PGADMIN_VIRTUAL_PORT}
     volumes:
        - pgadmin-data:/var/lib/pgadmin
         - ./default/pgadmin/servers.json:/pgadmin4/servers.json # preconfigured servers/connections
@@ -55,11 +54,11 @@ services:
       DB_TYPE: postgres
       DB_HOST: postgres
       DB_PORT: 5432
-      DB_USER: dev-stack-admin
-      DB_PASS: 123DevStack!
-      DB_NAME: wiki-db
-      VIRTUAL_HOST: wiki.local
-      VIRTUAL_PORT: 3000
+      DB_USER: ${POSTGRES_USER}
+      DB_PASS: ${POSTGRES_PASSWORD}
+      DB_NAME: ${WIKI_DB_NAME}
+      VIRTUAL_HOST: ${WIKI_VIRTUAL_HOST}
+      VIRTUAL_PORT: ${WIKI_VIRTUAL_PORT}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -72,8 +71,8 @@ services:
     volumes:
       - nexus-data:/nexus-data
     environment:
-      VIRTUAL_HOST: artifactshub.local
-      VIRTUAL_PORT: 8081
+      VIRTUAL_HOST: NEXUS_VIRTUAL_HOST
+      VIRTUAL_PORT: NEXUS_VIRTUAL_PORT
 
   jenkins:
     container_name: jenkins
@@ -83,31 +82,47 @@ services:
       - jenkins-docker-certs:/certs/client
       - jenkins-data:/var/jenkins_home
     environment:
-      VIRTUAL_HOST: jenkins.local
-      VIRTUAL_PORT: 8080
+      VIRTUAL_HOST: ${JENKINS_VIRTUAL_HOST}
+      VIRTUAL_PORT: ${JENKINS_VIRTUAL_PORT}
 
-  synapse-matrix:
-    image: "matrixdotorg/synapse:v1.90.0"
-    container_name: synapse-matrix
-    volumes:
-        - synapse-matrix-data:/data #it will look at the current directory where you save the file and look for the data folder inside
-        - ./default/synapse-matrix-data/:/data/
-    environment:
-        VIRTUAL_HOST: "matrix.local"
-        VIRTUAL_PORT: 8008
-        LETSENCRYPT_HOST: "matrix.local"
-        SYNAPSE_SERVER_NAME: "matrix.local"
-    restart: unless-stopped
+  mattermost:
+    container_name: mattermost
     depends_on:
       postgres:
         condition: service_healthy
+    image: mattermost/mattermost-team-edition:release-8.1
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 200
+    read_only: false
+    tmpfs:
+      - /tmp
+    volumes:
+      - mattermost-config:/mattermost/config:rw
+      - mattermost-data:/mattermost/data:rw
+      - mattermost-logs:/mattermost/logs:rw
+      - mattermost-plugins:/mattermost/plugins:rw
+      - mattermost-client-plugins:/mattermost/client/plugins:rw
+      - mattermost-bleve-indexes:/mattermost/bleve-indexes:rw
+    environment:
+      TZ: ${MATTERMOST_TIMEZONE}
+      MM_SQLSETTINGS_DRIVERNAME: ${MATTERMOST_DB_TYPE}
+      MM_SQLSETTINGS_DATASOURCE: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${MATTERMOST_DB_NAME}?sslmode=disable&connect_timeout=10
+      MM_BLEVESETTINGS_INDEXDIR: /mattermost/bleve-indexes
+      DOMAIN: ${MATTERMOST_HOSTNAME}
+      MM_SERVICESETTINGS_SITEURL: ${MATTERMOST_URL}
+      MM_SERVICESETTINGS_FORWARD80TO443: 'false'
+      MATTERMOST_CONTAINER_READONLY: 'false'
+      VIRTUAL_HOST: ${MATTERMOST_VIRTUAL_HOST}
+      VIRTUAL_PORT: ${MATTERMOST_VIRTUAL_PORT}
 
   nginx:
     image: jwilder/nginx-proxy
     container_name: nginx-proxy
     ports:
       - "80:80"
-      - "443:443"
+      # - "443:443"
     volumes:
       - /var/run/docker.sock:/tmp/docker.sock:ro
 
@@ -122,3 +137,9 @@ volumes:
   jenkins-docker-certs:
   jenkins-data:
   synapse-matrix-data:
+  mattermost-config:
+  mattermost-data:
+  mattermost-logs:
+  mattermost-plugins:
+  mattermost-client-plugins:
+  mattermost-bleve-indexes:
