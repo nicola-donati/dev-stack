@@ -9,9 +9,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer-data:/data
     restart: unless-stopped
-    environment:
-      VIRTUAL_HOST: ${PORTAINER_VIRTUAL_HOST}
-      VIRTUAL_PORT:  ${PORTAINER_VIRTUAL_PORT}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.portainer.rule=Host(`${PORTAINER_VIRTUAL_HOST}`) || Host(`www.${PORTAINER_VIRTUAL_HOST}`)
+      - traefik.http.services.portainer.loadbalancer.server.port=9000
   
   postgres:
     container_name: postgres
@@ -40,8 +41,10 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
-      VIRTUAL_HOST: ${PGADMIN_VIRTUAL_HOST}
-      VIRTUAL_PORT: ${PGADMIN_VIRTUAL_PORT}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.pgadmin.rule=Host(`${PGADMIN_VIRTUAL_HOST}`) || Host(`www.${PGADMIN_VIRTUAL_HOST}`)
+      - traefik.http.services.pgadmin.loadbalancer.server.port=80
     volumes:
        - pgadmin-data:/var/lib/pgadmin
         - ./default/pgadmin/servers.json:/pgadmin4/servers.json # preconfigured servers/connections
@@ -57,22 +60,25 @@ services:
       DB_USER: ${POSTGRES_USER}
       DB_PASS: ${POSTGRES_PASSWORD}
       DB_NAME: ${WIKI_DB_NAME}
-      VIRTUAL_HOST: ${WIKI_VIRTUAL_HOST}
-      VIRTUAL_PORT: ${WIKI_VIRTUAL_PORT}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.wiki.rule=Host(`${WIKI_VIRTUAL_HOST}`) || Host(`www.${WIKI_VIRTUAL_HOST}`)
+      - traefik.http.services.wiki.loadbalancer.server.port=3000
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
 
-  nexus:
+  artifactshub:
     container_name: artifactshub
     image: sonatype/nexus3
     restart: unless-stopped
     volumes:
       - nexus-data:/nexus-data
-    environment:
-      VIRTUAL_HOST: NEXUS_VIRTUAL_HOST
-      VIRTUAL_PORT: NEXUS_VIRTUAL_PORT
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.artifactshub.rule=Host(`${ARTIFACTSHUB_VIRTUAL_HOST}`) || Host(`www.${ARTIFACTSHUB_VIRTUAL_HOST}`)
+      - traefik.http.services.artifactshub.loadbalancer.server.port=8081
 
   jenkins:
     container_name: jenkins
@@ -81,9 +87,10 @@ services:
     volumes:
       - jenkins-docker-certs:/certs/client
       - jenkins-data:/var/jenkins_home
-    environment:
-      VIRTUAL_HOST: ${JENKINS_VIRTUAL_HOST}
-      VIRTUAL_PORT: ${JENKINS_VIRTUAL_PORT}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.jenkins.rule=Host(`${JENKINS_VIRTUAL_HOST}`) || Host(`www.${JENKINS_VIRTUAL_HOST}`)
+      - traefik.http.services.jenkins.loadbalancer.server.port=8080
 
   mattermost:
     container_name: mattermost
@@ -114,17 +121,26 @@ services:
       MM_SERVICESETTINGS_SITEURL: ${MATTERMOST_URL}
       MM_SERVICESETTINGS_FORWARD80TO443: 'false'
       MATTERMOST_CONTAINER_READONLY: 'false'
-      VIRTUAL_HOST: ${MATTERMOST_VIRTUAL_HOST}
-      VIRTUAL_PORT: ${MATTERMOST_VIRTUAL_PORT}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mattermost.rule=Host(`${MATTERMOST_VIRTUAL_HOST}`) || Host(`www.${MATTERMOST_VIRTUAL_HOST}`)
+      - traefik.http.services.mattermost.loadbalancer.server.port=8065
 
-  nginx:
-    image: jwilder/nginx-proxy
-    container_name: nginx-proxy
+  reverse-proxy:
+    container_name: reverse-proxy
+    # The official v3 Traefik docker image
+    image: traefik:v3.0
+    # Enables the web UI and tells Traefik to listen to docker
+    command: --api.insecure=true --providers.docker
+    restart: unless-stopped
     ports:
+      # The HTTP port
       - "80:80"
-      # - "443:443"
+      # The Web UI (enabled by --api.insecure=true)
+      - "8080:8080"
     volumes:
-      - /var/run/docker.sock:/tmp/docker.sock:ro
+      # So that Traefik can listen to the Docker events
+      - /var/run/docker.sock:/var/run/docker.sock
 
 networks:
   dev_network:
