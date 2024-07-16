@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
     labels:
       - traefik.enable=true
-      - traefik.http.routers.portainer.rule=Host(`${PORTAINER_VIRTUAL_HOST}`) || Host(`www.${PORTAINER_VIRTUAL_HOST}`)
+      - traefik.http.routers.portainer.rule=Host(`${PORTAINER_VIRTUAL_HOST}.${BASE_DOMAIN}`)
       - traefik.http.services.portainer.loadbalancer.server.port=9000
   
   postgres:
@@ -43,7 +43,7 @@ services:
       PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
     labels:
       - traefik.enable=true
-      - traefik.http.routers.pgadmin.rule=Host(`${PGADMIN_VIRTUAL_HOST}`) || Host(`www.${PGADMIN_VIRTUAL_HOST}`)
+      - traefik.http.routers.pgadmin.rule=Host(`${PGADMIN_VIRTUAL_HOST}.${BASE_DOMAIN}`)
       - traefik.http.services.pgadmin.loadbalancer.server.port=80
     volumes:
        - pgadmin-data:/var/lib/pgadmin
@@ -62,7 +62,7 @@ services:
       DB_NAME: ${WIKI_DB_NAME}
     labels:
       - traefik.enable=true
-      - traefik.http.routers.wiki.rule=Host(`${WIKI_VIRTUAL_HOST}`) || Host(`www.${WIKI_VIRTUAL_HOST}`)
+      - traefik.http.routers.wiki.rule=Host(`${WIKI_VIRTUAL_HOST}.${BASE_DOMAIN}`)
       - traefik.http.services.wiki.loadbalancer.server.port=3000
     restart: unless-stopped
     depends_on:
@@ -77,7 +77,7 @@ services:
       - nexus-data:/nexus-data
     labels:
       - traefik.enable=true
-      - traefik.http.routers.artifactshub.rule=Host(`${ARTIFACTSHUB_VIRTUAL_HOST}`) || Host(`www.${ARTIFACTSHUB_VIRTUAL_HOST}`)
+      - traefik.http.routers.artifactshub.rule=Host(`${ARTIFACTSHUB_VIRTUAL_HOST}.${BASE_DOMAIN}`)
       - traefik.http.services.artifactshub.loadbalancer.server.port=8081
 
   jenkins:
@@ -90,7 +90,12 @@ services:
     labels:
       - traefik.enable=true
       - traefik.http.routers.jenkins.rule=Host(`${JENKINS_VIRTUAL_HOST}`) || Host(`www.${JENKINS_VIRTUAL_HOST}`)
-      - traefik.http.services.jenkins.loadbalancer.server.port=8080
+      - traefik.http.routers.jenkins.service=jenkins-service
+      - traefik.http.services.jenkins-service.loadbalancer.server.port=8080
+      - traefik.tcp.routers.jenkins-agent.rule=HostSNI(`*`)
+      - traefik.tcp.routers.jenkins-agent.entryPoints=jenkins-agents
+      - traefik.tcp.routers.jenkins-agent.service=jenkins-agent-service
+      - traefik.tcp.services.jenkins-agent-service.loadbalancer.server.port=50000
 
   mattermost:
     container_name: mattermost
@@ -99,12 +104,6 @@ services:
         condition: service_healthy
     image: mattermost/mattermost-team-edition:release-8.1
     restart: unless-stopped
-    security_opt:
-      - no-new-privileges:true
-    pids_limit: 200
-    read_only: false
-    tmpfs:
-      - /tmp
     volumes:
       - mattermost-config:/mattermost/config:rw
       - mattermost-data:/mattermost/data:rw
@@ -114,30 +113,35 @@ services:
       - mattermost-bleve-indexes:/mattermost/bleve-indexes:rw
     environment:
       TZ: ${MATTERMOST_TIMEZONE}
-      MM_SQLSETTINGS_DRIVERNAME: ${MATTERMOST_DB_TYPE}
       MM_SQLSETTINGS_DATASOURCE: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${MATTERMOST_DB_NAME}?sslmode=disable&connect_timeout=10
-      MM_BLEVESETTINGS_INDEXDIR: /mattermost/bleve-indexes
-      DOMAIN: ${MATTERMOST_HOSTNAME}
-      MM_SERVICESETTINGS_SITEURL: ${MATTERMOST_URL}
-      MM_SERVICESETTINGS_FORWARD80TO443: 'false'
-      MATTERMOST_CONTAINER_READONLY: 'false'
     labels:
       - traefik.enable=true
-      - traefik.http.routers.mattermost.rule=Host(`${MATTERMOST_VIRTUAL_HOST}`) || Host(`www.${MATTERMOST_VIRTUAL_HOST}`)
+      - traefik.http.routers.mattermost.rule=Host(`${MATTERMOST_VIRTUAL_HOST}.${BASE_DOMAIN}`)
       - traefik.http.services.mattermost.loadbalancer.server.port=8065
+      # https
+      - "traefik.http.routers.mattermost.tls=true"
+      - "traefik.http.routers.mattermost.tls.certresolver=cloudflare"
 
   reverse-proxy:
     container_name: reverse-proxy
     # The official v3 Traefik docker image
     image: traefik:v3.0
     # Enables the web UI and tells Traefik to listen to docker
-    command: --api.insecure=true --providers.docker
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.websecure.address=:443"
+      - "--entryPoints.jenkins-agents.address=:50000"
     restart: unless-stopped
     ports:
       # The HTTP port
       - "80:80"
+      - "443:443"
       # The Web UI (enabled by --api.insecure=true)
       - "8080:8080"
+      # The jenkins agents port
+      - "50000:50000"
     volumes:
       # So that Traefik can listen to the Docker events
       - /var/run/docker.sock:/var/run/docker.sock
